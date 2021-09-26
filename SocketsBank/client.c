@@ -9,6 +9,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdbool.h>
 
 void error(const char *msg)
 {
@@ -162,27 +163,6 @@ int main(int argc, char *argv[])
         error("ERROR, no such host");
     }
 
-    fd_set myset; 
-    struct timeval tv; 
-    int valopt; 
-    socklen_t lon;
-
-    long arg;
-    // Set non-blocking 
-    if( (arg = fcntl(soc, F_GETFL, NULL)) < 0)
-    { 
-        //fprintf(stderr, "Error fcntl(..., F_GETFL) (%s)\n", strerror(errno)); 
-        //exit(0); 
-        error("");
-    } 
-    arg |= O_NONBLOCK; 
-    if( fcntl(soc, F_SETFL, arg) < 0)
-    { 
-        //fprintf(stderr, "Error fcntl(..., F_SETFL) (%s)\n", strerror(errno)); 
-        //exit(0);
-        error("");
-    } 
-
     bzero((char *) &serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
 
@@ -193,88 +173,62 @@ int main(int argc, char *argv[])
     serv_addr.sin_port = htons(portno);
     if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
     {
-        if (errno == EINPROGRESS)
-        {
-            do { 
-                tv.tv_sec = 15; 
-                tv.tv_usec = 0; 
-                FD_ZERO(&myset); 
-                FD_SET(soc, &myset); 
-                res = select(soc+1, NULL, &myset, NULL, &tv); 
-                if (res < 0 && errno != EINTR)
-                { 
-                    //fprintf(stderr, "Error connecting %d - %s\n", errno, strerror(errno)); 
-                    //exit(0);
-                    error(""); 
-                } 
-                else if (res > 0) { 
-                    // Socket selected for write 
-                    lon = sizeof(int); 
-                    if (getsockopt(soc, SOL_SOCKET, SO_ERROR, (void*)(&valopt), &lon) < 0) { 
-                        //fprintf(stderr, "Error in getsockopt() %d - %s\n", errno, strerror(errno)); 
-                        //exit(0); 
-                        error("");
-                    } 
-                    // Check the value returned... 
-                    if (valopt) { 
-                        //fprintf(stderr, "Error in delayed connection() %d - %s\n", valopt, strerror(valopt)); 
-                        //exit(0);
-                        error("");
-                    } 
-                    break; 
-                } 
-                else { 
-                    //fprintf(stderr, "Timeout in select() - Cancelling!\n"); 
-                    //exit(0);
-                    error(""); 
-                } 
-                } while (1);
-        }
-        else
-        {
-            error("ERROR connecting");
-        }
+        error("ERROR connecting");
     }
 
     const char SERCRET_KEY[] = "I wanna be kept in (ms): ";
+    const char READY_MESSAGE[] = "Wait for new data!";
     char *buffer = malloc(buflen);
     if (buffer == NULL)
     {
         error("Cannot allocate memory for buffer");
     }
 
-    char *message = malloc(buflen * 2);
-    if (message == NULL)
-    {
-        free(buffer);
-        error("Cannot allocate memory for message");
-    }
-
-    strcpy(message, SERCRET_KEY);
-
-    printf("Please enter the array of ms, how long the server should keep this thread alive: ");
-    bzero(buffer,buflen);
-    fgets(buffer,buflen - 1,stdin);
-    strcat(message, buffer);
-    printf("%s", message);
-    int n = write(sockfd, message, strlen(message));
-    free(message);
-
-    if (n < 0)
-    {
-        free(buffer);
-        error("ERROR writing to socket");
-    }
-
     bzero(buffer, buflen);
-    n = read(sockfd, buffer, buflen);
+    int n = read(sockfd, buffer, buflen);
     if (n < 0)
     {
         free(buffer);
-        error("ERROR reading from socket");
+        error("ERROR reading ready message from socket");
+    }
+    else if (strstr(buffer, READY_MESSAGE) != NULL)
+    {
+        printf("%s\n", buffer);
+        char *message = malloc(buflen * 2);
+        if (message == NULL)
+        {
+            free(buffer);
+            error("Cannot allocate memory for message");
+        }
+
+        strcpy(message, SERCRET_KEY);
+
+        printf("Please enter the array of ms, how long the server should keep this thread alive: ");
+        
+        bzero(buffer,buflen);
+        fgets(buffer,buflen - 1,stdin);
+        strcat(message, buffer);
+        printf("%s", message);
+        n = write(sockfd, message, strlen(message));
+        free(message);
+
+        if (n < 0)
+        {
+            free(buffer);
+            error("ERROR writing to socket");
+        }
+
+        bzero(buffer, buflen);
+        n = read(sockfd, buffer, buflen);
+        if (n < 0)
+        {
+            free(buffer);
+            error("ERROR reading from socket");
+        }
+
+        printf("%s\n", buffer);
     }
 
-    printf("%s\n", buffer);
     close(sockfd);
     free(buffer);
     return 0;

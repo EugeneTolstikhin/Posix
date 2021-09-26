@@ -44,18 +44,18 @@ void runClient(char** host, int port, int buflen, long* points)
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0)
     {
-        if (host) free(host);
+        if (*host) free(*host);
         error("CLIENT ERROR opening socket");
     }
 
-    if (host)
+    if (*host)
     {
         server = gethostbyname(*host);
     }
 
     if (server == NULL)
     {
-        free(*host);
+        if (*host) free(*host);
         error("CLIENT ERROR, no such host");
     }
 
@@ -70,53 +70,66 @@ void runClient(char** host, int port, int buflen, long* points)
 
     if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
     {
-        free(*host);
+        if (*host) free(*host);
         error("CLIENT ERROR connecting");
     }
 
     const char SERCRET_KEY[] = "Give me the points!";
-    int n = write(sockfd, SERCRET_KEY, strlen(SERCRET_KEY));
-    if (n < 0)
-    {
-        free(*host);
-        error("CLIENT ERROR writing to socket");
-    }
+    const char READY_MESSAGE[] = "Wait for command!";
 
     char *buffer = malloc(buflen);
     if (buffer == NULL)
     {
-        free(*host);
+        if (*host) free(*host);
         error("CLIENT Cannot allocate memory for buffer");
     }
 
-    bzero(buffer, buflen);
-    n = read(sockfd, buffer, buflen);
+    int n = read(sockfd, buffer, buflen);
     if (n < 0)
     {
         free(buffer);
-        free(*host);
+        if (*host) free(*host);
         error("CLIENT ERROR reading from socket");
     }
-
-    errno = 0;
-    char *end;
-    const long num = strtol(buffer, &end, 10);
-    free(buffer);
-
-    if (errno == ERANGE)
+    else if (strstr(buffer, READY_MESSAGE) != NULL)
     {
-        free(*host);
-        error("CLIENT Range error occurred");
-    }
+        n = write(sockfd, SERCRET_KEY, strlen(SERCRET_KEY));
+        if (n < 0)
+        {
+            free(buffer);
+            if (*host) free(*host);
+            error("CLIENT ERROR writing to socket");
+        }
 
-    if (num >= 0 && num < LONG_MAX && (*points + num < LONG_MAX))
-    {
-        *points += num;
-    }
-    else
-    {
-        free(*host);
-        error("CLIENT Port is out of range");
+        bzero(buffer, buflen);
+        n = read(sockfd, buffer, buflen);
+        if (n < 0)
+        {
+            free(buffer);
+            if (*host) free(*host);
+            error("CLIENT ERROR reading from socket");
+        }
+
+        errno = 0;
+        char *end;
+        const long num = strtol(buffer, &end, 10);
+        free(buffer);
+
+        if (errno == ERANGE)
+        {
+            if (*host) free(*host);
+            error("CLIENT Range error occurred");
+        }
+
+        if (num >= 0 && num < LONG_MAX && (*points + num < LONG_MAX))
+        {
+            *points += num;
+        }
+        else
+        {
+            if (*host) free(*host);
+            error("CLIENT Port is out of range");
+        }
     }
 
     close(sockfd);
@@ -242,6 +255,7 @@ void runServer(int server_port, int buflen, char** host, int client_port)
     }
 
     const char SERCRET_KEY[] = "I wanna be kept in (ms): ";
+    const char READY_MESSAGE[] = "Wait for new data!";
     const char ACCEPT[] = "Accepted";
     const char REJECT[] = "Rejected";
 
@@ -272,6 +286,7 @@ void runServer(int server_port, int buflen, char** host, int client_port)
 
     while ((newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen)) >= 0)
     {
+        send(newsockfd, READY_MESSAGE, strlen(READY_MESSAGE), 0);
         bzero(buffer, buflen);
 
         int n = read(newsockfd, buffer, buflen - 1);

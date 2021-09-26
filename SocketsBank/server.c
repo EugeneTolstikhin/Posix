@@ -13,6 +13,7 @@
 #include <stdbool.h>
 
 #include <signal.h>
+#include <time.h>
 
 static bool keepRunning = true;
 
@@ -76,14 +77,14 @@ int main(int argc, char *argv[])
     act.sa_handler = intHandler;
     sigaction(SIGINT, &act, NULL);
 
+    srand(time(NULL));
+
     // Open config file
     FILE* cfg = fopen("config.cfg", "r");
     if (cfg == NULL)
     {
         error("Cannot open config file");
     }
-    
-    const char SERCRET_KEY[] = "Give me the points!";
 
     int port = 0;
     ssize_t lineSize = 0;
@@ -94,6 +95,7 @@ int main(int argc, char *argv[])
     const char BUFFER_LENGTH[] = "BUFFER_LENGTH: ";
     const size_t MAX_BUFFER_LENGTH = 1024;
     const int POOL_SIZE = 5;
+    const int RAND_MAXIMUM = 11;
 
     // Parse config file
     while ((lineSize = getline(&line, &len, cfg)) != -1)
@@ -146,14 +148,22 @@ int main(int argc, char *argv[])
         error("ERROR on binding");
     }
 
-    listen(sockfd, POOL_SIZE);
+    if (listen(sockfd, POOL_SIZE) < 0)
+    {
+        close(sockfd);
+        error("SERVER ERROR on listening");
+    }
 
     socklen_t clilen = sizeof(cli_addr);
+
+    const char SERCRET_KEY[] = "Give me the points!";
+    const char READY_MESSAGE[] = "Wait for command!";
 
     int newsockfd;
     char *buffer = malloc(buflen);
     while ((newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen)) >= 0)
     {
+        send(newsockfd, READY_MESSAGE, strlen(READY_MESSAGE), 0);
         bzero(buffer, buflen);
 
         int n = read(newsockfd, buffer, buflen - 1);
@@ -166,7 +176,9 @@ int main(int argc, char *argv[])
         }
         else if (strstr(buffer, SERCRET_KEY) != NULL)
         {
-            char answer[] = "5";
+            int r = rand() % RAND_MAXIMUM;
+            char answer[2];
+            sprintf(answer, "%d", r);
             send(newsockfd, answer, strlen(answer), 0);
         }
 
