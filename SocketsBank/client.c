@@ -110,15 +110,12 @@ int main(int argc, char* argv[])
     const char HOST[] = "HOST: ";
     const char BUFFER_LENGTH[] = "BUFFER_LENGTH: ";
     const size_t MAX_BUFFER_LENGTH = 1024;
+	const size_t MAX_LINE_LENGTH = 100;
 
     //Parse config file
-#ifdef __linux__
-    while ((lineSize = getline(&line, &len, cfg)) != -1)
-#elif defined _WIN32
-    line = (char*)malloc(101);
-    memset(line, '\0', 101);
-    while(fgets(line, 100, cfg) != NULL)
-#endif
+	line = (char*)malloc(MAX_LINE_LENGTH);
+    memset(line, '\0', MAX_LINE_LENGTH);
+    while(fgets(line, MAX_LINE_LENGTH - 1, cfg) != NULL)
     {
         if (strstr(line, PORT_CLIENT) != NULL)
         {
@@ -208,11 +205,7 @@ int main(int argc, char* argv[])
     }
 
     memset(buffer, '\0', buflen);
-#ifdef __linux__
-    int n = read(sockfd, buffer, buflen);
-#elif defined _WIN32
     int n = recv(sockfd, buffer, buflen, 0);
-#endif
     if (n < 0)
     {
         free(buffer);
@@ -245,12 +238,7 @@ int main(int argc, char* argv[])
 #endif
 
         printf("%s", message);
-
-#ifdef __linux__
-        n = write(sockfd, message, strlen(message));
-#elif defined _WIN32
         n = send(sockfd, message, strlen(message), 0);
-#endif
         free(message);
 
         if (n < 0)
@@ -260,11 +248,7 @@ int main(int argc, char* argv[])
         }
 
         memset(buffer, '\0', buflen);
-#ifdef __linux__
-        n = read(sockfd, buffer, buflen);
-#elif defined _WIN32
         int n = recv(sockfd, buffer, buflen, 0);
-#endif
         if (n < 0)
         {
             free(buffer);
