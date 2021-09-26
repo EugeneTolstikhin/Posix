@@ -1,17 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <string.h>
 #include <sys/types.h>
+
+#ifdef __linux__
+#include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#elif defined _WIN32
+#include <winsock2.h>
+#include <WS2tcpip.h>
+
+#pragma comment(lib, "Ws2_32.lib")
+#endif
 
 #include <errno.h>
 #include <limits.h>
 #include <stdbool.h>
 
-void error(const char *msg)
+void error(const char* msg)
 {
     perror(msg);
     exit(1);
@@ -20,23 +28,23 @@ void error(const char *msg)
 int parseConfigLine(const char* line, const char* param, const long min, const long max)
 {
     int res = -1;
-    
+
     int headerLen = strlen(param);
     int len = strlen(line) - headerLen;
 
-    char *str = malloc(len + 1);
+    char* str = (char*)malloc(len + 1);
     if (str == NULL)
     {
         //error("Cannot allocate memory for port");
         return -2;
     }
 
-    bzero(str, len);
+    memset(str, '\0', len);
     memcpy(str, &line[strlen(param)], len);
     str[len] = '\0';
 
     errno = 0;
-    char *end;
+    char* end;
     const long num = strtol(str, &end, 10);
     free(str);
 
@@ -63,7 +71,7 @@ char* parseConfigLineString(const char* line, const char* param)
 {
     int headerLen = strlen(param);
     int len = strlen(line) - headerLen - 1;
-    char* result = malloc(len + 1);
+    char* result = (char*)malloc(len + 1);
     if (result == NULL)
     {
         //fclose(cfg);
@@ -77,33 +85,45 @@ char* parseConfigLineString(const char* line, const char* param)
     return result;
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
     //Open config file
-    FILE* cfg = fopen("config.cfg", "r");
+    FILE* cfg;
+#ifdef __linux__
+    cfg = fopen("config.cfg", "r");
+#elif defined _WIN32
+    fopen_s(&cfg, "config.cfg", "r");
+#endif
+
     if (cfg == NULL)
     {
         error("Cannot open config file");
     }
-    
-    int portno = 0;
-    ssize_t lineSize = 0;
+
+    char* portno = NULL;
+
+    int lineSize = 0;
     size_t len = 0, buflen = 0;
-    char *line = NULL, *host = NULL;
+    char* line = NULL, * host = NULL;
 
     const char PORT_CLIENT[] = "PORT_CLIENT: ";
     const char HOST[] = "HOST: ";
     const char BUFFER_LENGTH[] = "BUFFER_LENGTH: ";
     const size_t MAX_BUFFER_LENGTH = 1024;
- 
+
     //Parse config file
+#ifdef __linux__
     while ((lineSize = getline(&line, &len, cfg)) != -1)
+#elif defined _WIN32
+    line = (char*)malloc(101);
+    memset(line, '\0', 101);
+    while(fgets(line, 100, cfg) != NULL)
+#endif
     {
         if (strstr(line, PORT_CLIENT) != NULL)
         {
-            portno = parseConfigLine(line, PORT_CLIENT, 1, USHRT_MAX);
-
-            if (portno < 0)
+            portno = parseConfigLineString(line, PORT_CLIENT);
+            if (portno == NULL)
             {
                 if (host) free(host);
                 if (line) free(line);
@@ -117,6 +137,7 @@ int main(int argc, char *argv[])
 
             if (host == NULL)
             {
+				if (portno) free(portno);
                 if (line) free(line);
                 fclose(cfg);
                 error("Cannot allocate memory for host");
@@ -128,6 +149,7 @@ int main(int argc, char *argv[])
 
             if (res < 0)
             {
+				if (portno) free(portno);
                 if (host) free(host);
                 if (line) free(line);
                 fclose(cfg);
@@ -142,50 +164,55 @@ int main(int argc, char *argv[])
     fclose(cfg);
     if (line) free(line);
 
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
-
-    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0)
-    {
-        if (host) free(host);
-        error("ERROR opening socket");
-    }
+    struct addrinfo hints, *addrs = NULL;
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
 
     if (host)
     {
-        server = gethostbyname(host);
-        free(host);
+        getaddrinfo(host, portno, &hints, &addrs);
     }
 
-    if (server == NULL)
+	free(portno);
+    free(host);
+
+    int sockfd = 0;
+    for (struct addrinfo* addr = addrs; addr != NULL; addr = addr->ai_next)
     {
-        error("ERROR, no such host");
+        sockfd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if (sockfd < 0)
+        {
+            //if (host) free(host);
+            //error("ERROR opening socket");
+        }
+        else
+        {
+            if (connect(sockfd, addr->ai_addr, addr->ai_addrlen) < 0)
+            {
+				if (addrs) free(addrs);
+                error("ERROR connecting");
+            }
+        }
     }
 
-    bzero((char *) &serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-
-    bcopy((char *)server->h_addr, 
-         (char *)&serv_addr.sin_addr.s_addr,
-         server->h_length);
-
-    serv_addr.sin_port = htons(portno);
-    if (connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
-    {
-        error("ERROR connecting");
-    }
+	if (addrs) free(addrs);
 
     const char SERCRET_KEY[] = "I wanna be kept in (ms): ";
     const char READY_MESSAGE[] = "Wait for new data!";
-    char *buffer = malloc(buflen);
+    char* buffer = (char*)malloc(buflen);
     if (buffer == NULL)
     {
         error("Cannot allocate memory for buffer");
     }
 
-    bzero(buffer, buflen);
+    memset(buffer, '\0', buflen);
+#ifdef __linux__
     int n = read(sockfd, buffer, buflen);
+#elif defined _WIN32
+    int n = recv(sockfd, buffer, buflen, 0);
+#endif
     if (n < 0)
     {
         free(buffer);
@@ -194,22 +221,36 @@ int main(int argc, char *argv[])
     else if (strstr(buffer, READY_MESSAGE) != NULL)
     {
         printf("%s\n", buffer);
-        char *message = malloc(buflen * 2);
+        char* message = (char*)malloc(buflen * 2);
         if (message == NULL)
         {
             free(buffer);
             error("Cannot allocate memory for message");
         }
 
+#ifdef __linux__
         strcpy(message, SERCRET_KEY);
+#elif defined _WIN32
+        strcpy_s(message, strlen(SERCRET_KEY), SERCRET_KEY);
+#endif
 
         printf("Please enter the array of ms, how long the server should keep this thread alive: ");
-        
-        bzero(buffer,buflen);
-        fgets(buffer,buflen - 1,stdin);
+
+        fgets(buffer, buflen - 1, stdin);
+
+#ifdef __linux__
         strcat(message, buffer);
+#elif defined _WIN32
+        strcat_s(message, strlen(buffer), buffer);
+#endif
+
         printf("%s", message);
+
+#ifdef __linux__
         n = write(sockfd, message, strlen(message));
+#elif defined _WIN32
+        n = send(sockfd, message, strlen(message), 0);
+#endif
         free(message);
 
         if (n < 0)
@@ -218,8 +259,12 @@ int main(int argc, char *argv[])
             error("ERROR writing to socket");
         }
 
-        bzero(buffer, buflen);
+        memset(buffer, '\0', buflen);
+#ifdef __linux__
         n = read(sockfd, buffer, buflen);
+#elif defined _WIN32
+        int n = recv(sockfd, buffer, buflen, 0);
+#endif
         if (n < 0)
         {
             free(buffer);
@@ -229,7 +274,12 @@ int main(int argc, char *argv[])
         printf("%s\n", buffer);
     }
 
+#ifdef __linux__
     close(sockfd);
+#elif defined _WIN32
+    closesocket(sockfd);
+#endif
+
     free(buffer);
     return 0;
 }
