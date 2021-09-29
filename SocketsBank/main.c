@@ -74,7 +74,7 @@ void runClient(char** host, int port, int buflen, long* points)
         error("CLIENT ERROR connecting");
     }
 
-    const char SERCRET_KEY[] = "Give me the points!";
+    const char SECRET_KEY[] = "Give me the points!";
     const char READY_MESSAGE[] = "Wait for command!";
 
     char *buffer = malloc(buflen);
@@ -84,7 +84,7 @@ void runClient(char** host, int port, int buflen, long* points)
         error("CLIENT Cannot allocate memory for buffer");
     }
 
-    int n = read(sockfd, buffer, buflen);
+    int n = recv(sockfd, buffer, buflen, 0);
     if (n < 0)
     {
         free(buffer);
@@ -93,7 +93,7 @@ void runClient(char** host, int port, int buflen, long* points)
     }
     else if (strstr(buffer, READY_MESSAGE) != NULL)
     {
-        n = write(sockfd, SERCRET_KEY, strlen(SERCRET_KEY));
+        n = write(sockfd, SECRET_KEY, strlen(SECRET_KEY));
         if (n < 0)
         {
             free(buffer);
@@ -102,7 +102,7 @@ void runClient(char** host, int port, int buflen, long* points)
         }
 
         bzero(buffer, buflen);
-        n = read(sockfd, buffer, buflen);
+        n = recv(sockfd, buffer, buflen, 0);
         if (n < 0)
         {
             free(buffer);
@@ -254,7 +254,7 @@ void runServer(int server_port, int buflen, char** host, int client_port)
         error("SERVER ERROR opening socket");
     }
 
-    const char SERCRET_KEY[] = "I wanna be kept in (ms): ";
+    const char SECRET_KEY[] = "I wanna be kept in (ms): ";
     const char READY_MESSAGE[] = "Wait for new data!";
     const char ACCEPT[] = "Accepted";
     const char REJECT[] = "Rejected";
@@ -266,13 +266,15 @@ void runServer(int server_port, int buflen, char** host, int client_port)
     serv_addr.sin_addr.s_addr = INADDR_ANY;  
     serv_addr.sin_port = htons(server_port);
 
-    if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0)
+	int n = bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+    if (n < 0)
     {
         close(sockfd);
         error("SERVER ERROR on binding");
     }
 
-    if (listen(sockfd, POOL_SIZE) < 0)
+	n = listen(sockfd, POOL_SIZE);
+    if (n < 0)
     {
         close(sockfd);
         error("SERVER ERROR on listening");
@@ -282,33 +284,38 @@ void runServer(int server_port, int buflen, char** host, int client_port)
 
     int newsockfd;
     struct list* start = NULL;
-    char *buffer = malloc(buflen);
+    char *buffer = (char*)malloc(buflen);
 
     while ((newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr, &clilen)) >= 0)
     {
-        send(newsockfd, READY_MESSAGE, strlen(READY_MESSAGE), 0);
+        n = send(newsockfd, READY_MESSAGE, strlen(READY_MESSAGE), 0);
         bzero(buffer, buflen);
+        n = recv(newsockfd, buffer, buflen, 0);
 
-        int n = read(newsockfd, buffer, buflen - 1);
         if (n < 0)
         {
-            free(buffer);
+            /*free(buffer);
             close(newsockfd);
             close(sockfd);
-            error("SERVER ERROR reading from socket");
-        }
-        else if (strstr(buffer, SERCRET_KEY) != NULL)
-        {
-            int dataLen = strlen(buffer) - strlen(SERCRET_KEY);
+            error("SERVER ERROR reading from socket");*/
 
-            char* data = malloc(dataLen + 1);
+			continue;
+        }
+        else if (strstr(buffer, SECRET_KEY) != NULL)
+        {
+			printf("buffer = '%s'", buffer);
+			fflush(stdin);
+
+            int dataLen = strlen(buffer) - strlen(SECRET_KEY);
+
+            char* data = (char*)malloc(dataLen + 1);
             if (data == NULL)
             {
                 continue;
             }
             
             bzero(data, dataLen);
-            memcpy(data, &buffer[strlen(SERCRET_KEY)], dataLen);
+            memcpy(data, &buffer[strlen(SECRET_KEY)], dataLen);
             data[dataLen] = '\0';
 
             struct list* chain = initNode();
@@ -324,7 +331,7 @@ void runServer(int server_port, int buflen, char** host, int client_port)
 
                 if (errno == ERANGE)
                 {
-                    stopTokenizing = true;
+                    stopTokenizing = false;
                     break;
                 }
 
@@ -346,6 +353,7 @@ void runServer(int server_port, int buflen, char** host, int client_port)
 
             if (stopTokenizing)
             {
+
                 send(newsockfd, REJECT, strlen(REJECT), 0);
             }
             else
