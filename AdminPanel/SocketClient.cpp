@@ -72,17 +72,18 @@ void SocketClient::run()
     const char SECRET_KEY[] = "I wanna be kept in (ms): ";
     const char READY_MESSAGE[] = "Wait for new data!";
 
-	char* buf = (char*)malloc(getBufferLength());
+	char* buf = new char[getBufferLength()];
     n = recv(s.get(), buf, getBufferLength(), 0);
 	String buffer(buf);
-	free(buf);
 
     if (n < 0)
     {
+		delete[] buf;
         throw("ERROR reading ready message from socket");
     }
 	else if (n == 0)
 	{
+		delete[] buf;
 		throw("ERROR socket may be shutdown");
 	}
     else if (buffer.found(String(READY_MESSAGE)))
@@ -91,21 +92,21 @@ void SocketClient::run()
 
         printf("Please enter the array of ms, how long the server should keep this thread alive: ");
 
-		char* buf = (char*)malloc(getBufferLength());
+		memset(buf, '\0', getBufferLength());
         fgets(buf, getBufferLength(), stdin);
         message.concat(String(buf));
 
         n = send(s.get(), message.get(), message.length(), 0);
         if (n < 0)
         {
-			free(buf);
+			delete[] buf;
             throw("ERROR writing to socket");
         }
 
         memset(buf, '\0', getBufferLength());
         n = recv(s.get(), buf, getBufferLength(), 0);
 		printf("%s\n", buf);
-		free(buf);
+		delete[] buf;
         if (n < 0)
         {
             throw("ERROR reading from socket");

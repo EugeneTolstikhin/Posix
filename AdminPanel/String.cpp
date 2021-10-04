@@ -18,8 +18,6 @@ String::String(size_t len) :
 
 String::String(const char* other)
 {
-	fflush(stdin);
-
 	if (other == nullptr)
 	{
 		m_size = 0;
@@ -47,6 +45,31 @@ String::~String()
 		delete[] m_resource;
 		m_resource = nullptr;
 	}
+}
+
+String& String::operator = (const String& other)
+{
+	m_size = other.m_size;
+	m_resource = new char[other.m_size];
+	newstrcpy(&m_resource, other.get());
+	return *this;
+}
+
+String& String::operator = (const char* other)
+{
+	if (other == nullptr)
+	{
+		m_size = 0;
+		m_resource = nullptr;
+	}
+	else
+	{
+		m_size = strlen(other);
+		m_resource = new char[m_size];
+		newstrcpy(&m_resource, other);
+	}
+	
+	return *this;
 }
 
 char& String::operator [] (size_t idx)
@@ -163,3 +186,24 @@ void String::newstrcpy(char** dest, const char* source)
 #endif
 }
 
+void String::reverse() noexcept
+{
+	m_resource = strrev(m_resource);
+}
+
+#ifdef __linux__
+char* String::strrev(char * const str)
+{
+      char *p1, *p2;
+
+      if (! str || ! *str)
+            return str;
+      for (p1 = str, p2 = str + strlen(str) - 1; p2 > p1; ++p1, --p2)
+      {
+            *p1 ^= *p2;
+            *p2 ^= *p1;
+            *p1 ^= *p2;
+      }
+      return str;
+}
+#endif
